@@ -5,16 +5,18 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+  console.error('Missing Supabase environment variables. Please check your .env file.');
+  console.error('Required: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
 }
 
-// Create a more robust Supabase client with better configuration
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+// Create Supabase client with proper error handling
+export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'pkce'
+    flowType: 'pkce',
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined
   },
   global: {
     headers: {
@@ -196,6 +198,12 @@ export const nuclearNetworkReset = async () => {
 
 // Comprehensive connection health check that tests the exact query patterns used in the app
 export const checkSupabaseConnection = async (userId?: string): Promise<boolean> => {
+  // Skip health check if no Supabase URL configured
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.log('Supabase: No configuration found, skipping health check');
+    return false;
+  }
+  
   const now = Date.now();
   
   // Skip health check if we just checked recently (within 5 seconds)
@@ -226,7 +234,7 @@ export const checkSupabaseConnection = async (userId?: string): Promise<boolean>
       .limit(1);
     
     const basicTestTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Basic test timeout')), 5000);
+      setTimeout(() => reject(new Error('Basic test timeout')), 8000);
     });
     
     const { data: basicTest, error: basicError } = await Promise.race([
@@ -410,8 +418,16 @@ export const executeQuery = async <T>(
     retryDelay?: number;
   } = {}
 ): Promise<{ data: T | null; error: any }> => {
+  // Return error immediately if no Supabase configuration
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return { 
+      data: null, 
+      error: new Error('Supabase not configured. Please check your .env file.') 
+    };
+  }
+  
   const {
-    timeout = 10000,
+    timeout = 15000,
     maxRetries = 3,
     retryDelay = 1000
   } = options;
@@ -470,7 +486,7 @@ export const executeQuery = async <T>(
           const nuclearSuccess = await nuclearNetworkReset();
           
           // If nuclear reset fails, force page reload as last resort
-          if (!nuclearSuccess && clientHealthState.consecutiveTimeouts >= 8) {
+          if (!nuclearSuccess && clientHealthState.consecutiveTimeouts >= 10) {
             console.log('Supabase: CRITICAL CORRUPTION - forcing page reload as last resort');
             setTimeout(() => {
               window.location.reload();

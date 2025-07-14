@@ -197,6 +197,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user?.id]); // Add user.id as dependency to detect changes
 
   const fetchProfile = async (userId: string) => {
+    // Skip profile fetch if no Supabase configuration
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      console.log('AuthContext: Skipping profile fetch - Supabase not configured');
+      return;
+    }
+    
     try {
       console.log('AuthContext: Fetching profile for user', userId);
       
@@ -209,7 +215,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             .single();
         },
         {
-          timeout: 8000,
+          timeout: 12000,
           maxRetries: 2,
           retryDelay: 1000
         }
@@ -217,6 +223,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (result.error) {
         console.error('AuthContext: Error fetching profile', result.error);
+        // Don't set profile to null on error, keep existing profile
         return;
       }
 
@@ -229,6 +236,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signIn = async (email: string, password: string) => {
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      return { error: 'Supabase not configured. Please check your .env file.' };
+    }
+    
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -237,6 +248,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signUp = async (email: string, password: string, username: string) => {
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      return { error: 'Supabase not configured. Please check your .env file.' };
+    }
+    
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -250,12 +265,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      return { error: 'Supabase not configured. Please check your .env file.' };
+    }
+    
     const { error } = await supabase.auth.signOut();
     return { error };
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return { error: 'No user logged in' };
+    
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      return { error: 'Supabase not configured. Please check your .env file.' };
+    }
 
     const { error } = await supabase
       .from('user_profiles')
