@@ -118,8 +118,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setUser(null);
             setProfile(null);
           } else {
-          console.log('AuthContext: Fetching profile for user', session.user.id);
-          await fetchProfile(session.user.id);
+            console.log('AuthContext: Fetching profile for user', session.user.id);
+            await fetchProfile(session.user.id);
+          }
         } else {
           console.log('AuthContext: No session found, clearing profile');
           setProfile(null);
@@ -256,7 +257,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (session?.user) {
             console.log('AuthContext: Fetching profile after session mismatch for user', session.user.id);
             await fetchProfile(session.user.id);
-          }
           } else {
             console.log('AuthContext: Clearing profile after session mismatch');
             setProfile(null);
