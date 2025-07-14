@@ -10,22 +10,22 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      proxy: env.VITE_SUPABASE_URL ? {
-        // Only set up proxy if Supabase URL is configured
+      proxy: env.VITE_SUPABASE_URL && env.VITE_SUPABASE_URL !== 'https://your-project.supabase.co' ? {
+        // Only set up proxy if Supabase URL is properly configured
         '^/[a-zA-Z0-9]{7}$': {
-          target: `${env.VITE_SUPABASE_URL}`,
+          target: `${env.VITE_SUPABASE_URL}/functions/v1/redirect`,
           changeOrigin: true,
-          rewrite: (path) => `/functions/v1/redirect${path}`,
-          timeout: 10000, // 10 second timeout
+          rewrite: (path) => path,
+          timeout: 15000,
+          secure: true,
           configure: (proxy, options) => {
             proxy.on('error', (err, req, res) => {
-              console.log('Proxy error - Edge Function may not be deployed or accessible:', err.message);
-              console.log('Please check:');
-              console.log('1. VITE_SUPABASE_URL is correct in .env file');
-              console.log('2. Edge Function "redirect" is deployed in Supabase');
-              console.log('3. Supabase project is accessible');
+              console.log('Proxy error - Edge Function may not be deployed:', err.message);
+              console.log('To fix this:');
+              console.log('1. Deploy the redirect Edge Function: supabase functions deploy redirect');
+              console.log('2. Verify VITE_SUPABASE_URL in .env file');
+              console.log('3. Check Supabase project is accessible');
               
-              // Send a proper error response instead of hanging
               if (!res.headersSent) {
                 res.writeHead(404, { 
                   'Content-Type': 'text/html',
@@ -34,10 +34,11 @@ export default defineConfig(({ mode }) => {
                 res.end(`
                   <!DOCTYPE html>
                   <html>
-                  <head><title>Link Not Found</title></head>
+                  <head><title>Redirect Service Unavailable</title></head>
                   <body>
-                    <h1>Link Not Found</h1>
-                    <p>The short link you're looking for doesn't exist or the redirect service is unavailable.</p>
+                    <h1>Redirect Service Unavailable</h1>
+                    <p>The redirect Edge Function is not deployed or accessible.</p>
+                    <p>Please deploy it using: <code>supabase functions deploy redirect</code></p>
                     <p><a href="/">Go back to homepage</a></p>
                   </body>
                   </html>
@@ -46,42 +47,11 @@ export default defineConfig(({ mode }) => {
             });
             
             proxy.on('proxyReq', (proxyReq, req, res) => {
-              console.log(`Proxying ${req.method} ${req.url} to ${options.target}${proxyReq.path}`);
-            });
-            
-            proxy.on('proxyRes', (proxyRes, req, res) => {
-              console.log(`Proxy response: ${proxyRes.statusCode} for ${req.url}`);
+              console.log(`Redirecting ${req.method} ${req.url} to Edge Function`);
             });
           }
         }
-      } : {
-        // Fallback when no Supabase URL is configured
-        '^/[a-zA-Z0-9]{7}$': {
-          target: 'http://localhost:5173',
-          changeOrigin: true,
-          configure: (proxy, options) => {
-            proxy.on('error', (err, req, res) => {
-              if (!res.headersSent) {
-                res.writeHead(404, { 
-                  'Content-Type': 'text/html',
-                  'Access-Control-Allow-Origin': '*'
-                });
-                res.end(`
-                  <!DOCTYPE html>
-                  <html>
-                  <head><title>Configuration Required</title></head>
-                  <body>
-                    <h1>Supabase Not Configured</h1>
-                    <p>Please configure your VITE_SUPABASE_URL in the .env file.</p>
-                    <p><a href="/">Go back to homepage</a></p>
-                  </body>
-                  </html>
-                `);
-              }
-            });
-          }
-        }
-      }
+      } : undefined
     },
     optimizeDeps: {
       exclude: ['lucide-react'],

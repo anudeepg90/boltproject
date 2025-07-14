@@ -16,11 +16,13 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
     persistSession: true,
     detectSessionInUrl: true,
     flowType: 'pkce',
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    storageKey: 'supabase.auth.token'
   },
   global: {
     headers: {
-      'X-Client-Info': 'linkforge-web/1.0'
+      'X-Client-Info': 'linkforge-web/1.0',
+      'Cache-Control': 'no-cache'
     }
   },
   realtime: {
@@ -199,7 +201,7 @@ export const nuclearNetworkReset = async () => {
 // Comprehensive connection health check that tests the exact query patterns used in the app
 export const checkSupabaseConnection = async (userId?: string): Promise<boolean> => {
   // Skip health check if no Supabase URL configured
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'https://your-project.supabase.co' || supabaseAnonKey === 'your-anon-key') {
     console.log('Supabase: No configuration found, skipping health check');
     return false;
   }
@@ -419,7 +421,7 @@ export const executeQuery = async <T>(
   } = {}
 ): Promise<{ data: T | null; error: any }> => {
   // Return error immediately if no Supabase configuration
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'https://your-project.supabase.co' || supabaseAnonKey === 'your-anon-key') {
     return { 
       data: null, 
       error: new Error('Supabase not configured. Please check your .env file.') 

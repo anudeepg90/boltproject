@@ -33,11 +33,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     console.log('AuthContext: useEffect triggered');
     
+    // Clear any corrupted auth tokens on startup
+    const clearCorruptedTokens = () => {
+      try {
+        const authToken = localStorage.getItem('supabase.auth.token');
+        if (authToken) {
+          const parsed = JSON.parse(authToken);
+          // Check if token is malformed or missing required claims
+          if (!parsed.access_token || !parsed.refresh_token) {
+            console.log('AuthContext: Clearing corrupted auth tokens');
+            localStorage.removeItem('supabase.auth.token');
+            sessionStorage.clear();
+          }
+        }
+      } catch (error) {
+        console.log('AuthContext: Clearing invalid auth tokens due to parse error');
+        localStorage.removeItem('supabase.auth.token');
+        sessionStorage.clear();
+      }
+    };
+    
+    clearCorruptedTokens();
+    
     // Get initial session
     const getSession = async () => {
       try {
         console.log('AuthContext: Getting initial session...');
-        const { data: { session } } = await supabase.auth.getSession();
+        
+        // Add timeout to prevent hanging
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Session timeout')), 10000);
+        });
+        
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as any;
+        
         console.log('AuthContext: Initial session check', { 
           user: session?.user?.id, 
           event: 'initial',
@@ -198,7 +228,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchProfile = async (userId: string) => {
     // Skip profile fetch if no Supabase configuration
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!import.meta.env.VITE_SUPABASE_URL || 
+        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
+        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
+        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
       console.log('AuthContext: Skipping profile fetch - Supabase not configured');
       return;
     }
@@ -236,9 +269,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signIn = async (email: string, password: string) => {
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!import.meta.env.VITE_SUPABASE_URL || 
+        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
+        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
+        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
       return { error: 'Supabase not configured. Please check your .env file.' };
     }
+    
+    // Clear any existing corrupted tokens before signing in
+    localStorage.removeItem('supabase.auth.token');
+    sessionStorage.clear();
     
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -248,7 +288,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signUp = async (email: string, password: string, username: string) => {
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!import.meta.env.VITE_SUPABASE_URL || 
+        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
+        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
+        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
       return { error: 'Supabase not configured. Please check your .env file.' };
     }
     
@@ -265,18 +308,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!import.meta.env.VITE_SUPABASE_URL || 
+        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
+        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
+        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
       return { error: 'Supabase not configured. Please check your .env file.' };
     }
     
+    // Clear tokens before and after sign out
+    localStorage.removeItem('supabase.auth.token');
+    sessionStorage.clear();
+    
     const { error } = await supabase.auth.signOut();
+    
+    // Ensure tokens are cleared after sign out
+    localStorage.removeItem('supabase.auth.token');
+    sessionStorage.clear();
+    
     return { error };
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return { error: 'No user logged in' };
     
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!import.meta.env.VITE_SUPABASE_URL || 
+        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
+        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
+        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
       return { error: 'Supabase not configured. Please check your .env file.' };
     }
 

@@ -30,6 +30,8 @@ VITE_SUPABASE_URL=https://your-actual-project-url.supabase.co
 VITE_SUPABASE_ANON_KEY=your-actual-anon-key-here
 ```
 
+**IMPORTANT**: Make sure there are no extra spaces or quotes around the values in your `.env` file.
+
 ### Step 4: Create Database Tables
 
 1. In your Supabase dashboard, go to **SQL Editor**
@@ -38,6 +40,8 @@ VITE_SUPABASE_ANON_KEY=your-actual-anon-key-here
 4. Paste it into the SQL editor
 5. Click **Run** to execute the schema
 6. You should see "Success. No rows returned" message
+
+**CRITICAL**: Do NOT run the `supabase_fixes.sql` file as it contains problematic policies that will break authentication.
 
 ### Step 5: Configure Authentication (Optional)
 
@@ -85,6 +89,21 @@ npm run dev
   2. Run the SQL schema in Supabase SQL Editor
   3. Restart your development server
 
+### Error: "invalid claim: missing sub claim"
+- **Cause**: Corrupted authentication session or wrong JWT token
+- **Solution**:
+  1. Clear browser localStorage and cookies for localhost:5173
+  2. Verify VITE_SUPABASE_ANON_KEY is correct in .env file
+  3. Restart development server
+  4. Try signing out and signing back in
+
+### Error: "socket hang up" in proxy
+- **Cause**: Edge Function not deployed or Supabase URL incorrect
+- **Solution**:
+  1. Verify VITE_SUPABASE_URL in .env file
+  2. Deploy the redirect Edge Function (see DEPLOYMENT_GUIDE.md)
+  3. Check Edge Function logs in Supabase dashboard
+
 ### Error: "Invalid API key"
 - **Cause**: Wrong anon key in `.env` file
 - **Solution**: Double-check the anon key from Supabase dashboard
@@ -96,6 +115,13 @@ npm run dev
 ### Tables not visible in Table Editor
 - **Cause**: SQL schema wasn't executed properly
 - **Solution**: Re-run the SQL schema, check for any error messages
+
+### Clear Browser Data (if authentication issues persist)
+1. Open browser developer tools (F12)
+2. Go to Application/Storage tab
+3. Clear all localStorage data for localhost:5173
+4. Clear all cookies for localhost:5173
+5. Refresh the page and try again
 
 ## Next Steps
 
