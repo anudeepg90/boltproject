@@ -234,29 +234,49 @@ export const checkSupabaseConnection = async (userId?: string): Promise<boolean>
       }
     }
     
-    // Simplified basic connectivity test
-    const { data: basicTest, error: basicError } = await supabase
-      .from('links')
-      .select('id')
-      .limit(1);
+    // Test basic connectivity without requiring authentication
+    // Use a simple fetch to test the connection
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    if (basicError) {
-      console.error('Supabase: Basic connectivity test failed', basicError);
-      // Don't immediately fail on basic test errors
-      console.log('Supabase: Basic test failed, but continuing...');
+    try {
+      const response = await fetch(`${supabaseUrl}/rest/v1/`, {
+        method: 'HEAD',
+        headers: {
+          'apikey': supabaseAnonKey,
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'Cache-Control': 'no-cache'
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok || response.status === 404) {
+        // 404 is expected for HEAD request to root endpoint
+        console.log('Supabase: Basic connectivity test passed');
+        clientHealthState.consecutiveFailures = 0;
+        clientHealthState.isHealthy = true;
+        clientHealthState.networkCorruptionDetected = false;
+        return true;
+      } else {
+        console.log('Supabase: Basic connectivity test failed with status', response.status);
+        clientHealthState.consecutiveFailures++;
+        clientHealthState.isHealthy = false;
+        return false;
+      }
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      console.error('Supabase: Basic connectivity fetch failed', fetchError);
+      clientHealthState.consecutiveFailures++;
+      clientHealthState.isHealthy = false;
+      return false;
     }
-    
-    // If we get here, basic connectivity is working
-    clientHealthState.consecutiveFailures = 0;
-    clientHealthState.isHealthy = true;
-    clientHealthState.networkCorruptionDetected = false;
-    console.log('Supabase: Connection health check passed');
-    return true;
   } catch (error) {
     console.error('Supabase: Connection health check error', error);
-    // Don't immediately mark as unhealthy on errors
-    console.log('Supabase: Health check error, but not marking as unhealthy');
-    return true; // Assume healthy unless proven otherwise
+    clientHealthState.consecutiveFailures++;
+    clientHealthState.isHealthy = false;
+    return false;
   }
 };
 
@@ -398,8 +418,18 @@ export const executeQuery = async <T>(
 
 // Helper functions
 export const getCurrentUser = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
+  try {
+    // Only call getUser if we have a valid session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      const { data: { user } } = await supabase.auth.getUser();
+      return user;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
 };
 
 export const signOut = async () => {

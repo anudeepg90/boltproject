@@ -89,14 +89,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         console.log('AuthContext: Getting initial session...');
         
-        // Try to get session with better error handling
-        const sessionResult = await supabase.auth.getSession();
-        const { data: { session }, error: sessionError } = sessionResult;
+        // Get session without calling protected endpoints
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           console.error('AuthContext: Session error', sessionError);
-          // Don't throw on session errors, just log and continue
-          console.log('AuthContext: Continuing without session due to error');
+          console.log('AuthContext: No valid session, continuing as guest');
           setUser(null);
           setProfile(null);
           setLoading(false);
@@ -109,27 +107,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           hasSession: !!session,
           sessionExpiry: session?.expires_at 
         });
+        
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Validate session user has required properties
-          if (!session.user.id) {
-            console.error('AuthContext: Invalid session - missing user ID');
-            setUser(null);
-            setProfile(null);
-          } else {
-            console.log('AuthContext: Fetching profile for user', session.user.id);
-            await fetchProfile(session.user.id);
-          }
+          console.log('AuthContext: Valid session found, fetching profile for user', session.user.id);
+          await fetchProfile(session.user.id);
         } else {
           console.log('AuthContext: No session found, clearing profile');
           setProfile(null);
         }
       } catch (error) {
         console.error('AuthContext: Error getting initial session', error);
+        // Don't call any protected endpoints when there's an error
         setUser(null);
         setProfile(null);
-        // Don't throw, just continue with no user
       } finally {
         console.log('AuthContext: Setting loading to false');
         setLoading(false);
