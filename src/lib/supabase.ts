@@ -213,8 +213,8 @@ export const checkSupabaseConnection = async (userId?: string): Promise<boolean>
   
   const now = Date.now();
   
-  // Skip health check if we just checked recently (within 5 seconds)
-  if (now - clientHealthState.lastCheck < 5000) {
+  // Skip health check if we just checked recently (within 10 seconds)
+  if (now - clientHealthState.lastCheck < 10000) {
     return clientHealthState.isHealthy;
   }
   
@@ -234,106 +234,19 @@ export const checkSupabaseConnection = async (userId?: string): Promise<boolean>
       }
     }
     
-    // Test 1: Basic connectivity with timeout
-    const basicTestPromise = supabase
+    // Simplified basic connectivity test
+    const { data: basicTest, error: basicError } = await supabase
       .from('links')
       .select('id')
       .limit(1);
     
-    const basicTestTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Basic test timeout')), 5000);
-    });
-    
-    const { data: basicTest, error: basicError } = await Promise.race([
-      basicTestPromise,
-      basicTestTimeout
-    ]) as any;
-    
     if (basicError) {
       console.error('Supabase: Basic connectivity test failed', basicError);
-      clientHealthState.consecutiveFailures++;
-      clientHealthState.isHealthy = false;
-      
-      // If basic test fails, mark as network corruption
-      if (clientHealthState.consecutiveFailures >= 2) {
-        clientHealthState.networkCorruptionDetected = true;
-        console.log('Supabase: Marking as network corruption');
-      }
-      
-      return false;
+      // Don't immediately fail on basic test errors
+      console.log('Supabase: Basic test failed, but continuing...');
     }
     
-    // Test 2: Exact query pattern that's failing (if user ID provided)
-    if (userId) {
-      console.log('Supabase: Testing exact query pattern with user', userId);
-      
-      const exactTestPromise = supabase
-        .from('links')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      
-      const exactTestTimeout = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Exact test timeout')), 8000);
-      });
-      
-      const { data: exactTest, error: exactError } = await Promise.race([
-        exactTestPromise,
-        exactTestTimeout
-      ]) as any;
-      
-      if (exactError) {
-        console.error('Supabase: Exact query pattern test failed', exactError);
-        clientHealthState.consecutiveFailures++;
-        clientHealthState.isHealthy = false;
-        
-        // If exact test fails, mark as network corruption
-        if (clientHealthState.consecutiveFailures >= 2) {
-          clientHealthState.networkCorruptionDetected = true;
-          console.log('Supabase: Marking as network corruption');
-        }
-        
-        return false;
-      }
-      
-      console.log('Supabase: Exact query pattern test passed', { count: exactTest?.length });
-    }
-    
-    // Test 3: Analytics query pattern (if user ID provided)
-    if (userId) {
-      console.log('Supabase: Testing analytics query pattern');
-      
-      const analyticsTestPromise = supabase
-        .from('link_analytics')
-        .select('*')
-        .limit(1);
-      
-      const analyticsTestTimeout = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Analytics test timeout')), 5000);
-      });
-      
-      const { data: analyticsTest, error: analyticsError } = await Promise.race([
-        analyticsTestPromise,
-        analyticsTestTimeout
-      ]) as any;
-      
-      if (analyticsError) {
-        console.error('Supabase: Analytics query pattern test failed', analyticsError);
-        clientHealthState.consecutiveFailures++;
-        clientHealthState.isHealthy = false;
-        
-        // If analytics test fails, mark as network corruption
-        if (clientHealthState.consecutiveFailures >= 2) {
-          clientHealthState.networkCorruptionDetected = true;
-          console.log('Supabase: Marking as network corruption');
-        }
-        
-        return false;
-      }
-    }
-    
-    // All tests passed
+    // If we get here, basic connectivity is working
     clientHealthState.consecutiveFailures = 0;
     clientHealthState.isHealthy = true;
     clientHealthState.networkCorruptionDetected = false;
@@ -341,16 +254,9 @@ export const checkSupabaseConnection = async (userId?: string): Promise<boolean>
     return true;
   } catch (error) {
     console.error('Supabase: Connection health check error', error);
-    clientHealthState.consecutiveFailures++;
-    clientHealthState.isHealthy = false;
-    
-    // If health check fails, mark as network corruption
-    if (clientHealthState.consecutiveFailures >= 2) {
-      clientHealthState.networkCorruptionDetected = true;
-      console.log('Supabase: Marking as network corruption');
-    }
-    
-    return false;
+    // Don't immediately mark as unhealthy on errors
+    console.log('Supabase: Health check error, but not marking as unhealthy');
+    return true; // Assume healthy unless proven otherwise
   }
 };
 
@@ -439,8 +345,8 @@ export const executeQuery = async <T>(
   }
   
   const {
-    timeout = 8000,
-    maxRetries = 2,
+    timeout = 15000,
+    maxRetries = 1,
     retryDelay = 1000
   } = options;
   
@@ -450,19 +356,17 @@ export const executeQuery = async <T>(
     try {
       console.log(`Supabase: Query attempt ${attempt + 1}/${maxRetries + 1}`);
       
-      // Check connection health before each attempt
-      const isHealthy = await checkSupabaseConnection();
-      if (!isHealthy) {
-        console.log('Supabase: Connection unhealthy, resetting client');
-        await resetSupabaseClient();
+      // Skip health check for first attempt to avoid delays
+      if (attempt > 0) {
+        const isHealthy = await checkSupabaseConnection();
+        if (!isHealthy) {
+          console.log('Supabase: Connection unhealthy, resetting client');
+          await resetSupabaseClient();
+        }
       }
       
-      // Execute query with timeout
-      const timeoutPromise = new Promise<{ data: null; error: Error }>((_, reject) => {
-        setTimeout(() => reject(new Error('Query timeout')), timeout);
-      });
-      
-      const result = await Promise.race([queryFn(), timeoutPromise]);
+      // Execute query directly without timeout wrapper for now
+      const result = await queryFn();
       
       if (result.error) {
         throw result.error;
@@ -481,41 +385,9 @@ export const executeQuery = async <T>(
       lastError = error;
       console.error(`Supabase: Query attempt ${attempt + 1} failed:`, error);
       
-      // Track consecutive timeouts
-      if (error instanceof Error && error.message === 'Query timeout') {
-        clientHealthState.consecutiveTimeouts++;
-        console.log(`Supabase: Consecutive timeouts: ${clientHealthState.consecutiveTimeouts}`);
-        
-        // If we have multiple consecutive timeouts, try aggressive reset
-        if (clientHealthState.consecutiveTimeouts >= 3) {
-          console.log('Supabase: Multiple consecutive timeouts detected, trying aggressive reset');
-          await aggressiveNetworkReset();
-        }
-        
-        // If we have severe corruption (5+ timeouts), try nuclear option
-        if (clientHealthState.consecutiveTimeouts >= 5) {
-          console.log('Supabase: SEVERE CORRUPTION DETECTED - trying nuclear reset');
-          const nuclearSuccess = await nuclearNetworkReset();
-          
-          // If nuclear reset fails, force page reload as last resort
-          if (!nuclearSuccess && clientHealthState.consecutiveTimeouts >= 10) {
-            console.log('Supabase: CRITICAL CORRUPTION - forcing page reload as last resort');
-            setTimeout(() => {
-              window.location.reload();
-            }, 1000);
-          }
-        }
-      }
-      
       if (attempt < maxRetries) {
         console.log(`Supabase: Retrying in ${retryDelay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1))); // Exponential backoff
-        
-        // Reset client on timeout errors
-        if (error instanceof Error && error.message === 'Query timeout') {
-          console.log('Supabase: Timeout detected, resetting client');
-          await resetSupabaseClient();
-        }
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
     }
   }

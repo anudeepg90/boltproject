@@ -89,17 +89,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         console.log('AuthContext: Getting initial session...');
         
-        // Add shorter timeout to prevent hanging
-        const { data: { session }, error: sessionError } = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Session timeout')), 5000)
-          )
-        ]) as any;
+        // Try to get session with better error handling
+        const sessionResult = await supabase.auth.getSession();
+        const { data: { session }, error: sessionError } = sessionResult;
         
         if (sessionError) {
           console.error('AuthContext: Session error', sessionError);
-          throw sessionError;
+          // Don't throw on session errors, just log and continue
+          console.log('AuthContext: Continuing without session due to error');
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+          return;
         }
         
         console.log('AuthContext: Initial session check', { 
@@ -111,6 +112,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(session?.user ?? null);
         
         if (session?.user) {
+          // Validate session user has required properties
+          if (!session.user.id) {
+            console.error('AuthContext: Invalid session - missing user ID');
+            setUser(null);
+            setProfile(null);
+          } else {
           console.log('AuthContext: Fetching profile for user', session.user.id);
           await fetchProfile(session.user.id);
         } else {
@@ -121,6 +128,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.error('AuthContext: Error getting initial session', error);
         setUser(null);
         setProfile(null);
+        // Don't throw, just continue with no user
       } finally {
         console.log('AuthContext: Setting loading to false');
         setLoading(false);
@@ -138,6 +146,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sessionExpiry: session?.expires_at 
       });
       setUser(session?.user ?? null);
+      
+      // Validate session user before proceeding
+      if (session?.user && !session.user.id) {
+        console.error('AuthContext: Invalid session in auth change - missing user ID');
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
       
       if (session?.user) {
         console.log('AuthContext: Fetching profile after auth change for user', session.user.id);
@@ -239,6 +256,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (session?.user) {
             console.log('AuthContext: Fetching profile after session mismatch for user', session.user.id);
             await fetchProfile(session.user.id);
+          }
           } else {
             console.log('AuthContext: Clearing profile after session mismatch');
             setProfile(null);
