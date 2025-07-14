@@ -200,8 +200,13 @@ export const nuclearNetworkReset = async () => {
 
 // Comprehensive connection health check that tests the exact query patterns used in the app
 export const checkSupabaseConnection = async (userId?: string): Promise<boolean> => {
-  // Skip health check if no Supabase URL configured
-  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'https://your-project.supabase.co' || supabaseAnonKey === 'your-anon-key') {
+  // Validate Supabase configuration
+  if (!supabaseUrl || !supabaseAnonKey || 
+      supabaseUrl === 'https://your-project.supabase.co' || 
+      supabaseAnonKey === 'your-anon-key' ||
+      supabaseUrl.includes('your-project') ||
+      supabaseAnonKey.includes('your-anon') ||
+      !supabaseAnonKey.startsWith('eyJ')) {
     console.log('Supabase: No configuration found, skipping health check');
     return false;
   }
@@ -232,11 +237,11 @@ export const checkSupabaseConnection = async (userId?: string): Promise<boolean>
     // Test 1: Basic connectivity with timeout
     const basicTestPromise = supabase
       .from('links')
-      .select('count')
+      .select('id')
       .limit(1);
     
     const basicTestTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Basic test timeout')), 8000);
+      setTimeout(() => reject(new Error('Basic test timeout')), 5000);
     });
     
     const { data: basicTest, error: basicError } = await Promise.race([
@@ -420,17 +425,22 @@ export const executeQuery = async <T>(
     retryDelay?: number;
   } = {}
 ): Promise<{ data: T | null; error: any }> => {
-  // Return error immediately if no Supabase configuration
-  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'https://your-project.supabase.co' || supabaseAnonKey === 'your-anon-key') {
+  // Validate Supabase configuration
+  if (!supabaseUrl || !supabaseAnonKey || 
+      supabaseUrl === 'https://your-project.supabase.co' || 
+      supabaseAnonKey === 'your-anon-key' ||
+      supabaseUrl.includes('your-project') ||
+      supabaseAnonKey.includes('your-anon') ||
+      !supabaseAnonKey.startsWith('eyJ')) {
     return { 
       data: null, 
-      error: new Error('Supabase not configured. Please check your .env file.') 
+      error: new Error('Supabase not configured properly. Please check your .env file and ensure you have valid credentials from your Supabase dashboard.') 
     };
   }
   
   const {
-    timeout = 15000,
-    maxRetries = 3,
+    timeout = 8000,
+    maxRetries = 2,
     retryDelay = 1000
   } = options;
   

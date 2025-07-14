@@ -31,9 +31,17 @@ const LandingPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Check if Supabase is properly configured
-      if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-        throw new Error('Supabase configuration missing. Please set up your environment variables.');
+      // Validate Supabase configuration
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!url || !key || 
+          url === 'https://your-project.supabase.co' || 
+          key === 'your-anon-key' ||
+          url.includes('your-project') ||
+          key.includes('your-anon') ||
+          !key.startsWith('eyJ')) {
+        throw new Error('Supabase not configured properly. Please check your .env file and ensure you have valid credentials from your Supabase dashboard.');
       }
 
       const shortCode = generateShortCode();

@@ -33,40 +33,74 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     console.log('AuthContext: useEffect triggered');
     
-    // Clear any corrupted auth tokens on startup
-    const clearCorruptedTokens = () => {
-      try {
-        const authToken = localStorage.getItem('supabase.auth.token');
-        if (authToken) {
-          const parsed = JSON.parse(authToken);
-          // Check if token is malformed or missing required claims
-          if (!parsed.access_token || !parsed.refresh_token) {
-            console.log('AuthContext: Clearing corrupted auth tokens');
-            localStorage.removeItem('supabase.auth.token');
-            sessionStorage.clear();
-          }
-        }
-      } catch (error) {
-        console.log('AuthContext: Clearing invalid auth tokens due to parse error');
-        localStorage.removeItem('supabase.auth.token');
-        sessionStorage.clear();
+    // Validate Supabase configuration before proceeding
+    const validateSupabaseConfig = () => {
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!url || !key || 
+          url === 'https://your-project.supabase.co' || 
+          key === 'your-anon-key' ||
+          url.includes('your-project') ||
+          key.includes('your-anon')) {
+        console.error('AuthContext: Invalid Supabase configuration detected');
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return false;
       }
+      
+      // Validate anon key format (should be a JWT)
+      if (!key.startsWith('eyJ')) {
+        console.error('AuthContext: Invalid anon key format - should be a JWT token');
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return false;
+      }
+      
+      return true;
     };
     
-    clearCorruptedTokens();
+    if (!validateSupabaseConfig()) {
+      return;
+    }
+    
+    // Clear any corrupted auth tokens on startup
+    try {
+      const authToken = localStorage.getItem('supabase.auth.token');
+      if (authToken) {
+        const parsed = JSON.parse(authToken);
+        // Check if token is malformed or missing required claims
+        if (!parsed.access_token || !parsed.refresh_token) {
+          console.log('AuthContext: Clearing corrupted auth tokens');
+          localStorage.removeItem('supabase.auth.token');
+          sessionStorage.clear();
+        }
+      }
+    } catch (error) {
+      console.log('AuthContext: Clearing invalid auth tokens due to parse error');
+      localStorage.removeItem('supabase.auth.token');
+      sessionStorage.clear();
+    }
     
     // Get initial session
     const getSession = async () => {
       try {
         console.log('AuthContext: Getting initial session...');
         
-        // Add timeout to prevent hanging
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Session timeout')), 10000);
-        });
+        // Add shorter timeout to prevent hanging
+        const { data: { session }, error: sessionError } = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Session timeout')), 5000)
+          )
+        ]) as any;
         
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as any;
+        if (sessionError) {
+          console.error('AuthContext: Session error', sessionError);
+          throw sessionError;
+        }
         
         console.log('AuthContext: Initial session check', { 
           user: session?.user?.id, 
@@ -227,11 +261,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user?.id]); // Add user.id as dependency to detect changes
 
   const fetchProfile = async (userId: string) => {
-    // Skip profile fetch if no Supabase configuration
-    if (!import.meta.env.VITE_SUPABASE_URL || 
-        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
-        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
-        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
+    // Validate Supabase configuration
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    if (!url || !key || 
+        url === 'https://your-project.supabase.co' || 
+        key === 'your-anon-key' ||
+        url.includes('your-project') ||
+        key.includes('your-anon') ||
+        !key.startsWith('eyJ')) {
       console.log('AuthContext: Skipping profile fetch - Supabase not configured');
       return;
     }
@@ -248,15 +287,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             .single();
         },
         {
-          timeout: 12000,
-          maxRetries: 2,
+          timeout: 8000,
+          maxRetries: 1,
           retryDelay: 1000
         }
       );
 
       if (result.error) {
         console.error('AuthContext: Error fetching profile', result.error);
-        // Don't set profile to null on error, keep existing profile
+        // Only set profile to null if it's a real error, not a timeout
+        if (!result.error.message?.includes('timeout')) {
+          setProfile(null);
+        }
         return;
       }
 
@@ -265,15 +307,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setProfile(profileData);
     } catch (error) {
       console.error('AuthContext: Exception fetching profile', error);
+      // Don't clear profile on network errors
     }
   };
 
   const signIn = async (email: string, password: string) => {
-    if (!import.meta.env.VITE_SUPABASE_URL || 
-        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
-        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
-        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
-      return { error: 'Supabase not configured. Please check your .env file.' };
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    if (!url || !key || 
+        url === 'https://your-project.supabase.co' || 
+        key === 'your-anon-key' ||
+        url.includes('your-project') ||
+        key.includes('your-anon') ||
+        !key.startsWith('eyJ')) {
+      return { error: 'Supabase not configured properly. Please check your .env file and ensure you have valid credentials.' };
     }
     
     // Clear any existing corrupted tokens before signing in
@@ -288,11 +336,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signUp = async (email: string, password: string, username: string) => {
-    if (!import.meta.env.VITE_SUPABASE_URL || 
-        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
-        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
-        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
-      return { error: 'Supabase not configured. Please check your .env file.' };
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    if (!url || !key || 
+        url === 'https://your-project.supabase.co' || 
+        key === 'your-anon-key' ||
+        url.includes('your-project') ||
+        key.includes('your-anon') ||
+        !key.startsWith('eyJ')) {
+      return { error: 'Supabase not configured properly. Please check your .env file and ensure you have valid credentials.' };
     }
     
     const { error } = await supabase.auth.signUp({
@@ -308,11 +361,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
-    if (!import.meta.env.VITE_SUPABASE_URL || 
-        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
-        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
-        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
-      return { error: 'Supabase not configured. Please check your .env file.' };
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    if (!url || !key || 
+        url === 'https://your-project.supabase.co' || 
+        key === 'your-anon-key' ||
+        url.includes('your-project') ||
+        key.includes('your-anon') ||
+        !key.startsWith('eyJ')) {
+      return { error: 'Supabase not configured properly. Please check your .env file and ensure you have valid credentials.' };
     }
     
     // Clear tokens before and after sign out
@@ -331,11 +389,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return { error: 'No user logged in' };
     
-    if (!import.meta.env.VITE_SUPABASE_URL || 
-        !import.meta.env.VITE_SUPABASE_ANON_KEY ||
-        import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co' ||
-        import.meta.env.VITE_SUPABASE_ANON_KEY === 'your-anon-key') {
-      return { error: 'Supabase not configured. Please check your .env file.' };
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    if (!url || !key || 
+        url === 'https://your-project.supabase.co' || 
+        key === 'your-anon-key' ||
+        url.includes('your-project') ||
+        key.includes('your-anon') ||
+        !key.startsWith('eyJ')) {
+      return { error: 'Supabase not configured properly. Please check your .env file and ensure you have valid credentials.' };
     }
 
     const { error } = await supabase
