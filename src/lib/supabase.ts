@@ -9,40 +9,21 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Required: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
 }
 
-// Create Supabase client with proper error handling
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
+// Create Supabase client
+export const supabase = createClient<Database>(supabaseUrl || '', supabaseAnonKey || '', {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'pkce'
   },
-  global: {
-    headers: {
-      'X-Client-Info': 'linkforge-web/1.0'
-    }
-  }
 });
 
 // Helper functions
 export const getCurrentUser = async () => {
   try {
-    // Validate configuration first
-    if (!supabaseUrl || !supabaseAnonKey || 
-        supabaseUrl === 'https://your-project.supabase.co' || 
-        supabaseAnonKey === 'your-anon-key' ||
-        supabaseUrl.includes('your-project') ||
-        supabaseAnonKey.includes('your-anon') ||
-        !supabaseAnonKey.startsWith('eyJ')) {
-      console.log('getCurrentUser: Supabase not configured');
-      return null;
-    }
+    const { data: { session }, error } = await supabase.auth.getSession();
     
-    // Get session first
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
-    if (sessionError || !session?.user) {
-      console.log('getCurrentUser: No valid session');
+    if (error || !session?.user) {
       return null;
     }
     

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Link2, BarChart3, QrCode, Copy, ExternalLink, Trash2, Plus, Search, Filter } from 'lucide-react';
+import { Link2, BarChart3, Copy, ExternalLink, Trash2, Plus, Search } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
@@ -18,7 +18,7 @@ const Dashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'expired'>('all');
   const [isLoading, setIsLoading] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -27,13 +27,12 @@ const Dashboard: React.FC = () => {
     }
   }, [user, loading, navigate]);
 
-  // Fetch links function
+  // Fetch links
   const fetchLinks = async () => {
-    if (!user || isLoading) return;
+    if (!user) return;
 
-    console.log('Dashboard: Starting to fetch links for user', user.id);
     setIsLoading(true);
-    setHasError(false);
+    setError(null);
 
     try {
       const { data, error } = await supabase
@@ -42,19 +41,13 @@ const Dashboard: React.FC = () => {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Dashboard: Error fetching links', error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log('Dashboard: Links fetched successfully', { count: data?.length || 0 });
       setLinks(data || []);
-      setHasError(false);
-    } catch (error) {
-      console.error('Dashboard: Error fetching links:', error);
-      setHasError(true);
-      setLinks([]);
-      toast.error('Failed to fetch links. Please try again.');
+    } catch (error: any) {
+      console.error('Error fetching links:', error);
+      setError('Failed to load links');
+      toast.error('Failed to load links');
     } finally {
       setIsLoading(false);
     }
@@ -62,10 +55,10 @@ const Dashboard: React.FC = () => {
 
   // Fetch links when user is available
   useEffect(() => {
-    if (user && !loading) {
+    if (user) {
       fetchLinks();
     }
-  }, [user, loading]);
+  }, [user]);
 
   // Filter links
   useEffect(() => {
@@ -157,17 +150,14 @@ const Dashboard: React.FC = () => {
   }
 
   // Show error state
-  if (hasError) {
+  if (error && !isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center">
         <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
         <div className="mb-4 text-slate-600 dark:text-slate-400">
-          Failed to load your links. Please try again.
+          {error}
         </div>
-        <div className="flex gap-2">
-          <Button onClick={fetchLinks}>Try Again</Button>
-          <Button onClick={() => window.location.reload()} variant="outline">Refresh Page</Button>
-        </div>
+        <Button onClick={fetchLinks}>Try Again</Button>
       </div>
     );
   }

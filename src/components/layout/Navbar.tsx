@@ -15,7 +15,6 @@ const Navbar: React.FC = () => {
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
-    // Show confirmation dialog
     const confirmed = window.confirm('Are you sure you want to sign out?');
     if (!confirmed) return;
 
@@ -27,14 +26,8 @@ const Navbar: React.FC = () => {
         return;
       }
 
-      // Clear any cached data
-      localStorage.removeItem('supabase.auth.token');
-      sessionStorage.clear();
-      
-      // Force a page reload to clear any cached state
-      window.location.href = '/';
-      
       toast.success('Signed out successfully!');
+      navigate('/');
     } catch (error) {
       console.error('Sign out error:', error);
       toast.error('Failed to sign out. Please try again.');

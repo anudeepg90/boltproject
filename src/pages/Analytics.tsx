@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, TrendingUp, Globe, Smartphone, Calendar } from 'lucide-react';
@@ -17,7 +17,7 @@ const Analytics: React.FC = () => {
   const [selectedLink, setSelectedLink] = useState<Link | null>(null);
   const [analytics, setAnalytics] = useState<LinkAnalytics[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -26,38 +26,22 @@ const Analytics: React.FC = () => {
     }
   }, [user, loading, navigate]);
 
-  // Fetch links function
-  const fetchLinks = useCallback(async () => {
-    if (!user || isLoading) return;
+  // Fetch links
+  const fetchLinks = async () => {
+    if (!user) return;
 
     setIsLoading(true);
-    setHasError(false);
+    setError(null);
 
     try {
-      console.log('Analytics: Fetching links for user', user.id);
-      
       const { data, error } = await supabase
         .from('links')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Analytics: Error fetching links', error);
-        
-        // Handle auth errors
-        if (error.message?.includes('invalid claim') || 
-            error.message?.includes('bad_jwt') ||
-            error.message?.includes('403')) {
-          console.log('Analytics: Auth error detected, redirecting to login');
-          navigate('/login');
-          return;
-        }
-        
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log('Analytics: Links fetched successfully', { count: data?.length });
       setLinks(data || []);
       
       // Set selected link
@@ -69,54 +53,38 @@ const Analytics: React.FC = () => {
         setSelectedLink(linkToSelect);
         await fetchAnalytics(linkToSelect.id);
       }
-      
-      setHasError(false);
-    } catch (error) {
-      console.error('Analytics: Error fetching links:', error);
-      setHasError(true);
-      setLinks([]);
-      setSelectedLink(null);
-      setAnalytics([]);
+    } catch (error: any) {
+      console.error('Error fetching links:', error);
+      setError('Failed to load links');
     } finally {
       setIsLoading(false);
     }
-  }, [user, selectedLinkId, navigate, isLoading]);
+  };
 
   // Fetch analytics for a specific link
   const fetchAnalytics = async (linkId: string) => {
     try {
-      console.log('Analytics: Fetching analytics for link', linkId);
-      
       const { data, error } = await supabase
         .from('link_analytics')
         .select('*')
         .eq('link_id', linkId)
         .order('timestamp', { ascending: false });
 
-      if (error) {
-        console.error('Analytics: Error fetching analytics', error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log('Analytics: Analytics fetched successfully', { count: data?.length });
       setAnalytics(data || []);
     } catch (error) {
-      console.error('Analytics: Error fetching analytics:', error);
+      console.error('Error fetching analytics:', error);
       setAnalytics([]);
     }
   };
 
-  // Fetch links when user changes
+  // Fetch links when user is available
   useEffect(() => {
-    if (user && !loading) {
+    if (user) {
       fetchLinks();
     }
-  }, [user, loading, fetchLinks]);
-
-  const handleRefresh = () => {
-    setHasError(false);
-    fetchLinks();
-  };
+  }, [user]);
 
   if (loading || isLoading) {
     return (
@@ -126,17 +94,14 @@ const Analytics: React.FC = () => {
     );
   }
 
-  if (hasError) {
+  if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center">
         <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
         <div className="mb-4 text-slate-600 dark:text-slate-400">
-          Failed to load your analytics. Please try again.
+          {error}
         </div>
-        <div className="flex gap-2">
-          <Button onClick={handleRefresh}>Try Again</Button>
-          <Button onClick={() => window.location.reload()} variant="outline">Refresh Page</Button>
-        </div>
+        <Button onClick={fetchLinks}>Try Again</Button>
       </div>
     );
   }
