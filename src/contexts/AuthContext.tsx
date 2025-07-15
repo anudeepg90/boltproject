@@ -33,102 +33,167 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     console.log('AuthContext: useEffect triggered');
     
-    // Validate Supabase configuration before proceeding
-    const validateSupabaseConfig = () => {
-      const url = import.meta.env.VITE_SUPABASE_URL;
-      const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      
-      if (!url || !key || 
-          url === 'https://your-project.supabase.co' || 
-          key === 'your-anon-key' ||
-          url.includes('your-project') ||
-          key.includes('your-anon')) {
-        console.error('AuthContext: Invalid Supabase configuration detected');
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
-        return false;
-      }
-      
-      // Validate anon key format (should be a JWT)
-      if (!key.startsWith('eyJ')) {
-        console.error('AuthContext: Invalid anon key format - should be a JWT token');
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
-        return false;
-      }
-      
-      return true;
-    };
-    
-    if (!validateSupabaseConfig()) {
-      return;
-    }
-    
-    // Clear any corrupted auth tokens on startup
-    try {
-      const authToken = localStorage.getItem('supabase.auth.token');
-      if (authToken) {
-        const parsed = JSON.parse(authToken);
-        // Check if token is malformed or missing required claims
-        if (!parsed.access_token || !parsed.refresh_token) {
-          console.log('AuthContext: Clearing corrupted auth tokens');
-          localStorage.removeItem('supabase.auth.token');
-          sessionStorage.clear();
-        }
-      }
-    } catch (error) {
-      console.log('AuthContext: Clearing invalid auth tokens due to parse error');
-      localStorage.removeItem('supabase.auth.token');
-      sessionStorage.clear();
-    }
-    
-    // Get initial session
-    const getSession = async () => {
+    // Initialize auth state with comprehensive error handling
+    const initializeAuth = async () => {
       try {
-        console.log('AuthContext: Getting initial session...');
+        // Validate Supabase configuration before proceeding
+        const validateSupabaseConfig = () => {
+          const url = import.meta.env.VITE_SUPABASE_URL;
+          const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+          
+          if (!url || !key || 
+              url === 'https://your-project.supabase.co' || 
+              key === 'your-anon-key' ||
+              url.includes('your-project') ||
+              key.includes('your-anon')) {
+            console.error('AuthContext: Invalid Supabase configuration detected');
+            return false;
+          }
+          
+          // Validate anon key format (should be a JWT)
+          if (!key.startsWith('eyJ')) {
+            console.error('AuthContext: Invalid anon key format - should be a JWT token');
+            return false;
+          }
+          
+          return true;
+        };
         
-        // Get session without calling protected endpoints
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('AuthContext: Session error', sessionError);
-          console.log('AuthContext: No valid session, continuing as guest');
+        if (!validateSupabaseConfig()) {
           setUser(null);
           setProfile(null);
           setLoading(false);
           return;
         }
         
-        console.log('AuthContext: Initial session check', { 
-          user: session?.user?.id, 
-          event: 'initial',
-          hasSession: !!session,
-          sessionExpiry: session?.expires_at 
-        });
-        
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          console.log('AuthContext: Valid session found, fetching profile for user', session.user.id);
-          await fetchProfile(session.user.id);
-        } else {
-          console.log('AuthContext: No session found, clearing profile');
-          setProfile(null);
+        // Clear any corrupted auth tokens on startup
+        try {
+          const authToken = localStorage.getItem('supabase.auth.token');
+          if (authToken) {
+            const parsed = JSON.parse(authToken);
+            // Check if token is malformed or missing required claims
+            if (!parsed.access_token || !parsed.refresh_token) {
+              console.log('AuthContext: Clearing corrupted auth tokens');
+              localStorage.removeItem('supabase.auth.token');
+              sessionStorage.clear();
+            }
+          }
+        } catch (error) {
+          console.log('AuthContext: Clearing invalid auth tokens due to parse error');
+          localStorage.removeItem('supabase.auth.token');
+          sessionStorage.clear();
         }
+        
+        await getSession();
       } catch (error) {
-        console.error('AuthContext: Error getting initial session', error);
-        // Don't call any protected endpoints when there's an error
+        console.error('AuthContext: Error during initialization', error);
         setUser(null);
         setProfile(null);
-      } finally {
-        console.log('AuthContext: Setting loading to false');
         setLoading(false);
       }
     };
+    
+    initializeAuth();
+  }, []);
 
-    getSession();
+  // Get initial session with comprehensive error handling
+  const getSession = async () => {
+    try {
+      console.log('AuthContext: Getting initial session...');
+      
+      // Create a timeout promise to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Session timeout')), 5000);
+      });
+      
+      // Race between session fetch and timeout
+      const sessionPromise = supabase.auth.getSession();
+      const { data: { session }, error: sessionError } = await Promise.race([
+        sessionPromise,
+        timeoutPromise
+      ]) as any;
+      
+      if (sessionError) {
+        console.error('AuthContext: Session error', sessionError);
+        
+        // Handle specific error cases
+        if (sessionError.message?.includes('invalid claim') || 
+            sessionError.message?.includes('bad_jwt')) {
+          console.log('AuthContext: Invalid JWT detected, clearing auth state');
+          await handleCorruptedSession();
+          return;
+        }
+        
+        console.log('AuthContext: No valid session, continuing as guest');
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('AuthContext: Initial session check', { 
+        user: session?.user?.id, 
+        event: 'initial',
+        hasSession: !!session,
+        sessionExpiry: session?.expires_at 
+      });
+      
+      // Validate session before using it
+      if (session?.user && !session.user.id) {
+        console.error('AuthContext: Invalid session - missing user ID');
+        await handleCorruptedSession();
+        return;
+      }
+      
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        console.log('AuthContext: Valid session found, fetching profile for user', session.user.id);
+        await fetchProfile(session.user.id);
+      } else {
+        console.log('AuthContext: No session found, clearing profile');
+        setProfile(null);
+      }
+    } catch (error) {
+      console.error('AuthContext: Error getting initial session', error);
+      
+      // Handle timeout or network errors
+      if (error instanceof Error && error.message === 'Session timeout') {
+        console.log('AuthContext: Session fetch timed out, continuing as guest');
+      } else {
+        console.log('AuthContext: Unexpected session error, clearing auth state');
+        await handleCorruptedSession();
+      }
+    } finally {
+      console.log('AuthContext: Setting loading to false');
+      setLoading(false);
+    }
+  };
+
+  // Handle corrupted session state
+  const handleCorruptedSession = async () => {
+    try {
+      console.log('AuthContext: Handling corrupted session');
+      
+      // Clear all auth-related storage
+      localStorage.removeItem('supabase.auth.token');
+      sessionStorage.clear();
+      
+      // Sign out to clear server-side session
+      await supabase.auth.signOut();
+      
+      // Reset state
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+    } catch (error) {
+      console.error('AuthContext: Error handling corrupted session', error);
+      // Force reset state even if signOut fails
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+    }
+  };
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -143,9 +208,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Validate session user before proceeding
       if (session?.user && !session.user.id) {
         console.error('AuthContext: Invalid session in auth change - missing user ID');
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
+        await handleCorruptedSession();
         return;
       }
       
@@ -268,7 +331,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(sessionCheckInterval);
     };
-  }, [user?.id]); // Add user.id as dependency to detect changes
 
   const fetchProfile = async (userId: string) => {
     // Validate Supabase configuration

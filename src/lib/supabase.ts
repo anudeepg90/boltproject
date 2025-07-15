@@ -419,11 +419,57 @@ export const executeQuery = async <T>(
 // Helper functions
 export const getCurrentUser = async () => {
   try {
+    // Validate configuration first
+    if (!supabaseUrl || !supabaseAnonKey || 
+        supabaseUrl === 'https://your-project.supabase.co' || 
+        supabaseAnonKey === 'your-anon-key' ||
+        supabaseUrl.includes('your-project') ||
+        supabaseAnonKey.includes('your-anon') ||
+        !supabaseAnonKey.startsWith('eyJ')) {
+      console.log('getCurrentUser: Supabase not configured');
+      return null;
+    }
+    
+    // Create timeout for session check
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Session check timeout')), 3000);
+    });
+    
     // Only call getUser if we have a valid session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      const { data: { user } } = await supabase.auth.getUser();
-      return user;
+    const sessionPromise = supabase.auth.getSession();
+    const { data: { session }, error: sessionError } = await Promise.race([
+      sessionPromise,
+      timeoutPromise
+    ]) as any;
+    
+    if (sessionError) {
+      console.error('getCurrentUser: Session error', sessionError);
+      return null;
+    }
+    
+    if (session?.user && session.user.id) {
+      try {
+        // Create timeout for getUser call
+        const getUserTimeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('GetUser timeout')), 3000);
+        });
+        
+        const getUserPromise = supabase.auth.getUser();
+        const { data: { user }, error: userError } = await Promise.race([
+          getUserPromise,
+          getUserTimeoutPromise
+        ]) as any;
+        
+        if (userError) {
+          console.error('getCurrentUser: User fetch error', userError);
+          return null;
+        }
+        
+        return user;
+      } catch (userFetchError) {
+        console.error('getCurrentUser: Error fetching user details', userFetchError);
+        return session.user; // Fallback to session user
+      }
     }
     return null;
   } catch (error) {

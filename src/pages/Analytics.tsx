@@ -97,6 +97,28 @@ const Analytics: React.FC = () => {
         return;
       }
 
+      // Validate session before making API calls
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session?.user) {
+          console.log('Analytics: No valid session, redirecting to login');
+          navigate('/login');
+          return;
+        }
+        
+        if (session.user.id !== user.id) {
+          console.log('Analytics: Session user mismatch, refreshing auth');
+          window.location.reload();
+          return;
+        }
+      } catch (sessionCheckError) {
+        console.error('Analytics: Session check failed', sessionCheckError);
+        setHasError(true);
+        setIsLoading(false);
+        return;
+      }
+
       console.log('Analytics: Fetching links for user', user.id);
       
       // Use the new executeQuery wrapper for better error handling
@@ -117,6 +139,16 @@ const Analytics: React.FC = () => {
 
       if (result.error) {
         console.error('Analytics: Supabase error fetching links', result.error);
+        
+        // Handle specific error types
+        if (result.error.message?.includes('invalid claim') || 
+            result.error.message?.includes('bad_jwt') ||
+            result.error.message?.includes('403')) {
+          console.log('Analytics: Auth error detected, redirecting to login');
+          navigate('/login');
+          return;
+        }
+        
         throw result.error;
       }
       
@@ -131,6 +163,18 @@ const Analytics: React.FC = () => {
       }
     } catch (error) {
       console.error('Analytics: Error fetching links:', error);
+      
+      // Handle different error types appropriately
+      if (error instanceof Error) {
+        if (error.message?.includes('invalid claim') || 
+            error.message?.includes('bad_jwt') ||
+            error.message?.includes('403')) {
+          console.log('Analytics: Auth error in catch, redirecting to login');
+          navigate('/login');
+          return;
+        }
+      }
+      
       setLinks([]);
       setSelectedLink(null);
       setAnalytics([]);
