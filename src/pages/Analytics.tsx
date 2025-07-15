@@ -8,7 +8,7 @@ import { Link, LinkAnalytics } from '../types/database';
 import Button from '../components/ui/Button';
 
 const Analytics: React.FC = () => {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const selectedLinkId = searchParams.get('link');
@@ -21,12 +21,18 @@ const Analytics: React.FC = () => {
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!loading && !user) {
+    if (!authLoading && !user) {
       navigate('/login');
     }
-  }, [user, loading, navigate]);
+  }, [user, authLoading, navigate]);
 
-  // Fetch links
+  // Fetch links when user is available
+  useEffect(() => {
+    if (user && !authLoading) {
+      fetchLinks();
+    }
+  }, [user, authLoading]);
+
   const fetchLinks = async () => {
     if (!user) return;
 
@@ -34,34 +40,36 @@ const Analytics: React.FC = () => {
     setError(null);
 
     try {
-      const { data, error } = await supabase
+      const { data, error: fetchError } = await supabase
         .from('links')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      
-      setLinks(data || []);
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      const linksData = data || [];
+      setLinks(linksData);
       
       // Set selected link
-      if (data && data.length > 0) {
+      if (linksData.length > 0) {
         const linkToSelect = selectedLinkId 
-          ? data.find(l => l.id === selectedLinkId) || data[0]
-          : data[0];
+          ? linksData.find(l => l.id === selectedLinkId) || linksData[0]
+          : linksData[0];
         
         setSelectedLink(linkToSelect);
         await fetchAnalytics(linkToSelect.id);
       }
-    } catch (error: any) {
-      console.error('Error fetching links:', error);
-      setError('Failed to load links');
+    } catch (err: any) {
+      console.error('Error fetching links:', err);
+      setError(err.message || 'Failed to load links');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch analytics for a specific link
   const fetchAnalytics = async (linkId: string) => {
     try {
       const { data, error } = await supabase
@@ -79,35 +87,39 @@ const Analytics: React.FC = () => {
     }
   };
 
-  // Fetch links when user is available
-  useEffect(() => {
-    if (user) {
-      fetchLinks();
+  const handleLinkChange = async (linkId: string) => {
+    const link = links.find(l => l.id === linkId);
+    if (link) {
+      setSelectedLink(link);
+      await fetchAnalytics(link.id);
     }
-  }, [user]);
+  };
 
-  if (loading || isLoading) {
+  // Show loading while auth is loading
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
+        </div>
       </div>
     );
+  }
+
+  // Don't render if no user (will redirect)
+  if (!user) {
+    return null;
   }
 
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center">
         <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
-        <div className="mb-4 text-slate-600 dark:text-slate-400">
-          {error}
-        </div>
+        <div className="mb-4 text-slate-600 dark:text-slate-400">{error}</div>
         <Button onClick={fetchLinks}>Try Again</Button>
       </div>
     );
-  }
-
-  if (!user) {
-    return null;
   }
 
   const getDeviceStats = () => {
@@ -120,7 +132,7 @@ const Analytics: React.FC = () => {
     return Object.entries(deviceTypes).map(([device, count]) => ({
       name: device,
       value: count,
-      percentage: Math.round((count / analytics.length) * 100)
+      percentage: analytics.length > 0 ? Math.round((count / analytics.length) * 100) : 0
     }));
   };
 
@@ -134,7 +146,7 @@ const Analytics: React.FC = () => {
     return Object.entries(countries).map(([country, count]) => ({
       name: country,
       value: count,
-      percentage: Math.round((count / analytics.length) * 100)
+      percentage: analytics.length > 0 ? Math.round((count / analytics.length) * 100) : 0
     }));
   };
 
@@ -173,13 +185,7 @@ const Analytics: React.FC = () => {
           <div className="w-full md:w-auto">
             <select
               value={selectedLink?.id || ''}
-              onChange={(e) => {
-                const link = links.find(l => l.id === e.target.value);
-                if (link) {
-                  setSelectedLink(link);
-                  fetchAnalytics(link.id);
-                }
-              }}
+              onChange={(e) => handleLinkChange(e.target.value)}
               className="w-full md:w-64 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
             >
               {links.map(link => (
@@ -192,7 +198,12 @@ const Analytics: React.FC = () => {
         )}
       </div>
 
-      {selectedLink ? (
+      {isLoading ? (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400">Loading analytics...</p>
+        </div>
+      ) : selectedLink ? (
         <>
           {/* Link Overview */}
           <Card>
@@ -233,7 +244,7 @@ const Analytics: React.FC = () => {
                   <div>
                     <p className="text-sm text-slate-600 dark:text-slate-400">Total Clicks</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-                      {selectedLink.click_count}
+                      {selectedLink.click_count || 0}
                     </p>
                   </div>
                   <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full">
@@ -303,7 +314,7 @@ const Analytics: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {deviceStats.map((device, index) => (
+                  {deviceStats.length > 0 ? deviceStats.map((device, index) => (
                     <div key={index} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className={`w-3 h-3 rounded-full ${
@@ -321,7 +332,11 @@ const Analytics: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-slate-500 dark:text-slate-400 text-center py-4">
+                      No device data available
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -335,7 +350,7 @@ const Analytics: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {countryStats.slice(0, 5).map((country, index) => (
+                  {countryStats.length > 0 ? countryStats.slice(0, 5).map((country, index) => (
                     <div key={index} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className={`w-3 h-3 rounded-full ${
@@ -355,7 +370,11 @@ const Analytics: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-slate-500 dark:text-slate-400 text-center py-4">
+                      No country data available
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -370,7 +389,7 @@ const Analytics: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {clicksOverTime.map((day, index) => (
+                {clicksOverTime.length > 0 ? clicksOverTime.map((day, index) => (
                   <div key={index} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <div className="flex items-center gap-3">
                       <Calendar className="h-4 w-4 text-slate-500" />
@@ -380,7 +399,11 @@ const Analytics: React.FC = () => {
                       {day.clicks} clicks
                     </span>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-slate-500 dark:text-slate-400 text-center py-4">
+                    No click data available
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>

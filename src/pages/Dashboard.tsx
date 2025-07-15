@@ -11,7 +11,7 @@ import { formatDate, copyToClipboard } from '../lib/utils';
 import toast from 'react-hot-toast';
 
 const Dashboard: React.FC = () => {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [links, setLinks] = useState<Link[]>([]);
   const [filteredLinks, setFilteredLinks] = useState<Link[]>([]);
@@ -22,12 +22,23 @@ const Dashboard: React.FC = () => {
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!loading && !user) {
+    if (!authLoading && !user) {
       navigate('/login');
     }
-  }, [user, loading, navigate]);
+  }, [user, authLoading, navigate]);
 
-  // Fetch links
+  // Fetch links when user is available
+  useEffect(() => {
+    if (user && !authLoading) {
+      fetchLinks();
+    }
+  }, [user, authLoading]);
+
+  // Filter links when search term or filter changes
+  useEffect(() => {
+    filterLinks();
+  }, [links, searchTerm, filterActive]);
+
   const fetchLinks = async () => {
     if (!user) return;
 
@@ -35,41 +46,35 @@ const Dashboard: React.FC = () => {
     setError(null);
 
     try {
-      const { data, error } = await supabase
+      const { data, error: fetchError } = await supabase
         .from('links')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      
+      if (fetchError) {
+        throw fetchError;
+      }
+
       setLinks(data || []);
-    } catch (error: any) {
-      console.error('Error fetching links:', error);
-      setError('Failed to load links');
-      toast.error('Failed to load links');
+    } catch (err: any) {
+      console.error('Error fetching links:', err);
+      setError(err.message || 'Failed to load links');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch links when user is available
-  useEffect(() => {
-    if (user) {
-      fetchLinks();
-    }
-  }, [user]);
-
-  // Filter links
-  useEffect(() => {
-    let filtered = links;
+  const filterLinks = () => {
+    let filtered = [...links];
 
     // Apply search filter
-    if (searchTerm) {
+    if (searchTerm.trim()) {
+      const search = searchTerm.toLowerCase();
       filtered = filtered.filter(link =>
-        link.original_url.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        link.short_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        link.title?.toLowerCase().includes(searchTerm.toLowerCase())
+        link.original_url.toLowerCase().includes(search) ||
+        link.short_code.toLowerCase().includes(search) ||
+        (link.title && link.title.toLowerCase().includes(search))
       );
     }
 
@@ -85,7 +90,7 @@ const Dashboard: React.FC = () => {
     }
 
     setFilteredLinks(filtered);
-  }, [links, searchTerm, filterActive]);
+  };
 
   const handleCopy = async (shortCode: string) => {
     const shortUrl = `${window.location.origin}/${shortCode}`;
@@ -108,9 +113,9 @@ const Dashboard: React.FC = () => {
 
       if (error) throw error;
       
-      setLinks(links.filter(link => link.id !== linkId));
+      setLinks(prev => prev.filter(link => link.id !== linkId));
       toast.success('Link deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting link:', error);
       toast.error('Failed to delete link');
     }
@@ -125,47 +130,38 @@ const Dashboard: React.FC = () => {
 
       if (error) throw error;
       
-      setLinks(links.map(link => 
+      setLinks(prev => prev.map(link => 
         link.id === linkId ? { ...link, is_active: !isActive } : link
       ));
       toast.success(`Link ${!isActive ? 'activated' : 'deactivated'}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating link:', error);
       toast.error('Failed to update link');
     }
   };
 
-  // Show loading spinner while auth is loading
-  if (loading) {
+  // Show loading while auth is loading
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
+        </div>
       </div>
     );
   }
 
-  // Redirect if no user
+  // Don't render if no user (will redirect)
   if (!user) {
     return null;
   }
 
-  // Show error state
-  if (error && !isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-center">
-        <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
-        <div className="mb-4 text-slate-600 dark:text-slate-400">
-          {error}
-        </div>
-        <Button onClick={fetchLinks}>Try Again</Button>
-      </div>
-    );
-  }
-
+  // Calculate stats
   const stats = {
     totalLinks: links.length,
     activeLinks: links.filter(link => link.is_active).length,
-    totalClicks: links.reduce((sum, link) => sum + link.click_count, 0),
+    totalClicks: links.reduce((sum, link) => sum + (link.click_count || 0), 0),
     expiredLinks: links.filter(link => 
       link.expires_at && new Date(link.expires_at) < new Date()
     ).length
@@ -197,7 +193,7 @@ const Dashboard: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -213,7 +209,7 @@ const Dashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -229,7 +225,7 @@ const Dashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -245,7 +241,7 @@ const Dashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -297,6 +293,11 @@ const Dashboard: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-slate-600 dark:text-slate-400">Loading your links...</p>
             </div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>
+              <Button onClick={fetchLinks}>Try Again</Button>
+            </div>
           ) : filteredLinks.length === 0 ? (
             <div className="text-center py-12">
               <Link2 className="h-12 w-12 text-slate-400 mx-auto mb-4" />
@@ -336,7 +337,7 @@ const Dashboard: React.FC = () => {
                       </p>
                       <div className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400">
                         <span>Created: {formatDate(link.created_at)}</span>
-                        <span>Clicks: {link.click_count}</span>
+                        <span>Clicks: {link.click_count || 0}</span>
                         {link.expires_at && (
                           <span>Expires: {formatDate(link.expires_at)}</span>
                         )}

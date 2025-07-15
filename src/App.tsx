@@ -11,6 +11,7 @@ import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Pricing from './pages/Pricing';
+import RedirectHandler from './components/RedirectHandler';
 import './App.css';
 
 // Error Boundary Component
@@ -66,6 +67,7 @@ function App() {
               <main className="container mx-auto px-4 py-8">
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
+                  <Route path="/:shortCode" element={<RedirectHandler />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/settings" element={<Settings />} />
