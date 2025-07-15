@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   console.log('AuthContext: Component rendered', { user: user?.id, loading, profile: profile?.username });
 
-  // Handle corrupted session state - defined early to avoid hoisting issues
+  // Handle corrupted session state
   const handleCorruptedSession = async () => {
     try {
       console.log('AuthContext: Handling corrupted session');
@@ -55,7 +55,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Fetch user profile - defined early to avoid hoisting issues
+  // Fetch user profile
   const fetchProfile = async (userId: string) => {
     // Validate Supabase configuration
     const url = import.meta.env.VITE_SUPABASE_URL;
@@ -106,72 +106,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Don't clear profile on network errors
     }
   };
-
-  useEffect(() => {
-    console.log('AuthContext: useEffect triggered');
-    
-    // Initialize auth state with comprehensive error handling
-    const initializeAuth = async () => {
-      try {
-        // Validate Supabase configuration before proceeding
-        const validateSupabaseConfig = () => {
-          const url = import.meta.env.VITE_SUPABASE_URL;
-          const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-          
-          if (!url || !key || 
-              url === 'https://your-project.supabase.co' || 
-              key === 'your-anon-key' ||
-              url.includes('your-project') ||
-              key.includes('your-anon')) {
-            console.error('AuthContext: Invalid Supabase configuration detected');
-            return false;
-          }
-          
-          // Validate anon key format (should be a JWT)
-          if (!key.startsWith('eyJ')) {
-            console.error('AuthContext: Invalid anon key format - should be a JWT token');
-            return false;
-          }
-          
-          return true;
-        };
-        
-        if (!validateSupabaseConfig()) {
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-          return;
-        }
-        
-        // Clear any corrupted auth tokens on startup
-        try {
-          const authToken = localStorage.getItem('supabase.auth.token');
-          if (authToken) {
-            const parsed = JSON.parse(authToken);
-            // Check if token is malformed or missing required claims
-            if (!parsed.access_token || !parsed.refresh_token) {
-              console.log('AuthContext: Clearing corrupted auth tokens');
-              localStorage.removeItem('supabase.auth.token');
-              sessionStorage.clear();
-            }
-          }
-        } catch (error) {
-          console.log('AuthContext: Clearing invalid auth tokens due to parse error');
-          localStorage.removeItem('supabase.auth.token');
-          sessionStorage.clear();
-        }
-        
-        await getSession();
-      } catch (error) {
-        console.error('AuthContext: Error during initialization', error);
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
-      }
-    };
-    
-    initializeAuth();
-  }, []);
 
   // Get initial session with comprehensive error handling
   const getSession = async () => {
@@ -246,6 +180,71 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    console.log('AuthContext: useEffect triggered');
+    
+    // Initialize auth state with comprehensive error handling
+    const initializeAuth = async () => {
+      try {
+        // Validate Supabase configuration before proceeding
+        const validateSupabaseConfig = () => {
+          const url = import.meta.env.VITE_SUPABASE_URL;
+          const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+          
+          if (!url || !key || 
+              url === 'https://your-project.supabase.co' || 
+              key === 'your-anon-key' ||
+              url.includes('your-project') ||
+              key.includes('your-anon')) {
+            console.error('AuthContext: Invalid Supabase configuration detected');
+            return false;
+          }
+          
+          // Validate anon key format (should be a JWT)
+          if (!key.startsWith('eyJ')) {
+            console.error('AuthContext: Invalid anon key format - should be a JWT token');
+            return false;
+          }
+          
+          return true;
+        };
+        
+        if (!validateSupabaseConfig()) {
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
+        
+        // Clear any corrupted auth tokens on startup
+        try {
+          const authToken = localStorage.getItem('supabase.auth.token');
+          if (authToken) {
+            const parsed = JSON.parse(authToken);
+            // Check if token is malformed or missing required claims
+            if (!parsed.access_token || !parsed.refresh_token) {
+              console.log('AuthContext: Clearing corrupted auth tokens');
+              localStorage.removeItem('supabase.auth.token');
+              sessionStorage.clear();
+            }
+          }
+        } catch (error) {
+          console.log('AuthContext: Clearing invalid auth tokens due to parse error');
+          localStorage.removeItem('supabase.auth.token');
+          sessionStorage.clear();
+        }
+        
+        await getSession();
+      } catch (error) {
+        console.error('AuthContext: Error during initialization', error);
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+      }
+    };
+    
+    initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -383,6 +382,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(sessionCheckInterval);
     };
+  }, []);
 
   const signIn = async (email: string, password: string) => {
     const url = import.meta.env.VITE_SUPABASE_URL;
