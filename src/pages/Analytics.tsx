@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, TrendingUp, Globe, Smartphone, Calendar } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
-import { supabase, checkSupabaseConnection, resetSupabaseClient, executeQuery } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { Link, LinkAnalytics } from '../types/database';
 import Button from '../components/ui/Button';
 
@@ -16,212 +16,106 @@ const Analytics: React.FC = () => {
   const [links, setLinks] = useState<Link[]>([]);
   const [selectedLink, setSelectedLink] = useState<Link | null>(null);
   const [analytics, setAnalytics] = useState<LinkAnalytics[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
 
-  console.log('Analytics: Component rendered', { 
-    user: user?.id, 
-    loading, 
-    isLoading, 
-    hasError, 
-    retryCount,
-    linksCount: links.length,
-    selectedLinkId 
-  });
-
+  // Redirect to login if not authenticated
   useEffect(() => {
-    console.log('Analytics: Auth check effect', { user: user?.id, loading });
     if (!loading && !user) {
-      console.log('Analytics: No user, navigating to login');
       navigate('/login');
     }
   }, [user, loading, navigate]);
 
-  useEffect(() => {
-    console.log('Analytics: User effect triggered', { user: user?.id });
-    if (user) {
-      console.log('Analytics: User exists, fetching links');
-      fetchLinks();
-    } else {
-      console.log('Analytics: No user, resetting state');
-      // Reset state when user is null
-      setIsLoading(false);
-      setLinks([]);
-      setSelectedLink(null);
-      setAnalytics([]);
-      setHasError(false);
-      setRetryCount(0);
-    }
-  }, [user]);
+  // Fetch links function
+  const fetchLinks = useCallback(async () => {
+    if (!user || isLoading) return;
 
-  // Auto-retry mechanism if stuck in loading
-  useEffect(() => {
-    console.log('Analytics: Auto-retry effect', { isLoading, user: user?.id, loading, retryCount });
-    if (isLoading && user && !loading) {
-      const timeout = setTimeout(() => {
-        console.log('Analytics: Auto-retry after timeout', { retryCount });
-        setRetryCount(prev => prev + 1);
-        fetchLinks();
-      }, 5000); // 5 second timeout
+    setIsLoading(true);
+    setHasError(false);
 
-      return () => {
-        console.log('Analytics: Clearing auto-retry timeout');
-        clearTimeout(timeout);
-      };
-    }
-  }, [isLoading, user, loading, retryCount]);
-
-  useEffect(() => {
-    console.log('Analytics: Selected link effect', { selectedLinkId, linksCount: links.length });
-    if (selectedLinkId && links.length > 0) {
-      const link = links.find(l => l.id === selectedLinkId);
-      if (link) {
-        console.log('Analytics: Setting selected link', { linkId: link.id });
-        setSelectedLink(link);
-        fetchAnalytics(link.id);
-      }
-    }
-  }, [selectedLinkId, links]);
-
-  const fetchLinks = async () => {
     try {
-      console.log('Analytics: Starting fetchLinks', { user: user?.id });
-      setIsLoading(true);
-      setHasError(false);
-      
-      // Check if user is still valid
-      if (!user) {
-        console.log('Analytics: No user during fetch, stopping');
-        setIsLoading(false);
-        return;
-      }
-
-      // Validate session before making API calls
-      try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError || !session?.user) {
-          console.log('Analytics: No valid session, redirecting to login');
-          navigate('/login');
-          return;
-        }
-        
-        if (session.user.id !== user.id) {
-          console.log('Analytics: Session user mismatch, refreshing auth');
-          window.location.reload();
-          return;
-        }
-      } catch (sessionCheckError) {
-        console.error('Analytics: Session check failed', sessionCheckError);
-        setHasError(true);
-        setIsLoading(false);
-        return;
-      }
-
       console.log('Analytics: Fetching links for user', user.id);
       
-      // Use the new executeQuery wrapper for better error handling
-      const result = await executeQuery(
-        async () => {
-          return await supabase
-            .from('links')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false });
-        },
-        {
-          timeout: 15000, // 15 second timeout
-          maxRetries: 3,
-          retryDelay: 2000
-        }
-      );
+      const { data, error } = await supabase
+        .from('links')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-      if (result.error) {
-        console.error('Analytics: Supabase error fetching links', result.error);
+      if (error) {
+        console.error('Analytics: Error fetching links', error);
         
-        // Handle specific error types
-        if (result.error.message?.includes('invalid claim') || 
-            result.error.message?.includes('bad_jwt') ||
-            result.error.message?.includes('403')) {
+        // Handle auth errors
+        if (error.message?.includes('invalid claim') || 
+            error.message?.includes('bad_jwt') ||
+            error.message?.includes('403')) {
           console.log('Analytics: Auth error detected, redirecting to login');
           navigate('/login');
           return;
         }
         
-        throw result.error;
+        throw error;
       }
       
-      console.log('Analytics: Links fetched successfully', { count: result.data?.length });
-      setLinks(result.data || []);
-      setRetryCount(0); // Reset retry count on success
+      console.log('Analytics: Links fetched successfully', { count: data?.length });
+      setLinks(data || []);
       
-      if (result.data && result.data.length > 0 && !selectedLinkId) {
-        console.log('Analytics: Setting first link as selected', { linkId: result.data[0].id });
-        setSelectedLink(result.data[0]);
-        fetchAnalytics(result.data[0].id);
+      // Set selected link
+      if (data && data.length > 0) {
+        const linkToSelect = selectedLinkId 
+          ? data.find(l => l.id === selectedLinkId) || data[0]
+          : data[0];
+        
+        setSelectedLink(linkToSelect);
+        await fetchAnalytics(linkToSelect.id);
       }
+      
+      setHasError(false);
     } catch (error) {
       console.error('Analytics: Error fetching links:', error);
-      
-      // Handle different error types appropriately
-      if (error instanceof Error) {
-        if (error.message?.includes('invalid claim') || 
-            error.message?.includes('bad_jwt') ||
-            error.message?.includes('403')) {
-          console.log('Analytics: Auth error in catch, redirecting to login');
-          navigate('/login');
-          return;
-        }
-      }
-      
+      setHasError(true);
       setLinks([]);
       setSelectedLink(null);
       setAnalytics([]);
-      setHasError(true);
     } finally {
-      console.log('Analytics: Setting isLoading to false');
       setIsLoading(false);
     }
-  };
+  }, [user, selectedLinkId, navigate, isLoading]);
 
-  const handleRefresh = async () => {
-    console.log('Analytics: Manual refresh triggered');
-    setRetryCount(0);
-    setHasError(false);
-    fetchLinks();
-  };
-
+  // Fetch analytics for a specific link
   const fetchAnalytics = async (linkId: string) => {
     try {
       console.log('Analytics: Fetching analytics for link', linkId);
       
-      const result = await executeQuery(
-        async () => {
-          return await supabase
-            .from('link_analytics')
-            .select('*')
-            .eq('link_id', linkId)
-            .order('timestamp', { ascending: false });
-        },
-        {
-          timeout: 10000,
-          maxRetries: 2,
-          retryDelay: 1000
-        }
-      );
+      const { data, error } = await supabase
+        .from('link_analytics')
+        .select('*')
+        .eq('link_id', linkId)
+        .order('timestamp', { ascending: false });
 
-      if (result.error) {
-        console.error('Analytics: Supabase error fetching analytics', result.error);
-        throw result.error;
+      if (error) {
+        console.error('Analytics: Error fetching analytics', error);
+        throw error;
       }
       
-      console.log('Analytics: Analytics fetched successfully', { count: result.data?.length });
-      setAnalytics(result.data || []);
+      console.log('Analytics: Analytics fetched successfully', { count: data?.length });
+      setAnalytics(data || []);
     } catch (error) {
       console.error('Analytics: Error fetching analytics:', error);
       setAnalytics([]);
     }
+  };
+
+  // Fetch links when user changes
+  useEffect(() => {
+    if (user && !loading) {
+      fetchLinks();
+    }
+  }, [user, loading, fetchLinks]);
+
+  const handleRefresh = () => {
+    setHasError(false);
+    fetchLinks();
   };
 
   if (loading || isLoading) {
@@ -237,12 +131,11 @@ const Analytics: React.FC = () => {
       <div className="flex flex-col items-center justify-center min-h-screen text-center">
         <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
         <div className="mb-4 text-slate-600 dark:text-slate-400">
-          Failed to load your analytics. {retryCount > 0 && `Retried ${retryCount} times.`}
+          Failed to load your analytics. Please try again.
         </div>
         <div className="flex gap-2">
           <Button onClick={handleRefresh}>Try Again</Button>
           <Button onClick={() => window.location.reload()} variant="outline">Refresh Page</Button>
-          <Button onClick={() => navigate('/login')} variant="outline">Sign In Again</Button>
         </div>
       </div>
     );
@@ -311,25 +204,27 @@ const Analytics: React.FC = () => {
         </div>
         
         {/* Link Selector */}
-        <div className="w-full md:w-auto">
-          <select
-            value={selectedLink?.id || ''}
-            onChange={(e) => {
-              const link = links.find(l => l.id === e.target.value);
-              if (link) {
-                setSelectedLink(link);
-                fetchAnalytics(link.id);
-              }
-            }}
-            className="w-full md:w-64 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
-          >
-            {links.map(link => (
-              <option key={link.id} value={link.id}>
-                {link.title || link.original_url.slice(0, 50)}...
-              </option>
-            ))}
-          </select>
-        </div>
+        {links.length > 0 && (
+          <div className="w-full md:w-auto">
+            <select
+              value={selectedLink?.id || ''}
+              onChange={(e) => {
+                const link = links.find(l => l.id === e.target.value);
+                if (link) {
+                  setSelectedLink(link);
+                  fetchAnalytics(link.id);
+                }
+              }}
+              className="w-full md:w-64 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
+            >
+              {links.map(link => (
+                <option key={link.id} value={link.id}>
+                  {link.title || link.original_url.slice(0, 50)}...
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {selectedLink ? (

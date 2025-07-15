@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Link2, BarChart3, QrCode, Copy, ExternalLink, Trash2, Plus, Search, Filter } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
-import { supabase, checkSupabaseConnection, resetSupabaseClient, executeQuery } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { Link } from '../types/database';
 import { formatDate, copyToClipboard } from '../lib/utils';
 import toast from 'react-hot-toast';
@@ -17,172 +17,79 @@ const Dashboard: React.FC = () => {
   const [filteredLinks, setFilteredLinks] = useState<Link[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'expired'>('all');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
 
-  console.log('Dashboard: Component rendered', { 
-    user: user?.id, 
-    loading, 
-    isLoading, 
-    hasError, 
-    retryCount,
-    linksCount: links.length 
-  });
-
+  // Redirect to login if not authenticated
   useEffect(() => {
-    console.log('Dashboard: Auth check effect', { user: user?.id, loading });
     if (!loading && !user) {
-      console.log('Dashboard: No user, navigating to login');
       navigate('/login');
     }
   }, [user, loading, navigate]);
 
-  useEffect(() => {
-    console.log('Dashboard: User effect triggered', { user: user?.id });
-    if (user) {
-      console.log('Dashboard: User exists, fetching links');
-      fetchLinks();
-    } else {
-      console.log('Dashboard: No user, resetting state');
-      // Reset state when user is null
-      setIsLoading(false);
-      setLinks([]);
-      setFilteredLinks([]);
-      setHasError(false);
-      setRetryCount(0);
-    }
-  }, [user]);
+  // Fetch links function
+  const fetchLinks = useCallback(async () => {
+    if (!user || isLoading) return;
 
-  // Auto-retry mechanism if stuck in loading
-  useEffect(() => {
-    console.log('Dashboard: Auto-retry effect', { isLoading, user: user?.id, loading, retryCount });
-    if (isLoading && user && !loading) {
-      const timeout = setTimeout(() => {
-        console.log('Dashboard: Auto-retry after timeout', { retryCount });
-        setRetryCount(prev => prev + 1);
-        fetchLinks();
-      }, 5000); // 5 second timeout
+    setIsLoading(true);
+    setHasError(false);
 
-      return () => {
-        console.log('Dashboard: Clearing auto-retry timeout');
-        clearTimeout(timeout);
-      };
-    }
-  }, [isLoading, user, loading, retryCount]);
-
-  useEffect(() => {
-    console.log('Dashboard: Filter effect', { linksCount: links.length, searchTerm, filterActive });
-    filterLinks();
-  }, [links, searchTerm, filterActive]);
-
-  const fetchLinks = async () => {
     try {
-      console.log('Dashboard: Starting fetchLinks', { user: user?.id });
-      setIsLoading(true);
-      setHasError(false);
-      
-      // Check if user is still valid
-      if (!user) {
-        console.log('Dashboard: No user during fetch, stopping');
-        setIsLoading(false);
-        return;
-      }
-
-      // Validate session before making API calls
-      try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError || !session?.user) {
-          console.log('Dashboard: No valid session, redirecting to login');
-          navigate('/login');
-          return;
-        }
-        
-        if (session.user.id !== user.id) {
-          console.log('Dashboard: Session user mismatch, refreshing auth');
-          window.location.reload();
-          return;
-        }
-      } catch (sessionCheckError) {
-        console.error('Dashboard: Session check failed', sessionCheckError);
-        setHasError(true);
-        setIsLoading(false);
-        return;
-      }
-
       console.log('Dashboard: Fetching links for user', user.id);
       
-      // Use the new executeQuery wrapper for better error handling
-      const result = await executeQuery(
-        async () => {
-          return await supabase
-            .from('links')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false });
-        },
-        {
-          timeout: 15000, // 15 second timeout
-          maxRetries: 3,
-          retryDelay: 2000
-        }
-      );
+      const { data, error } = await supabase
+        .from('links')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-      if (result.error) {
-        console.error('Dashboard: Supabase error fetching links', result.error);
+      if (error) {
+        console.error('Dashboard: Error fetching links', error);
         
-        // Handle specific error types
-        if (result.error.message?.includes('invalid claim') || 
-            result.error.message?.includes('bad_jwt') ||
-            result.error.message?.includes('403')) {
+        // Handle auth errors
+        if (error.message?.includes('invalid claim') || 
+            error.message?.includes('bad_jwt') ||
+            error.message?.includes('403')) {
           console.log('Dashboard: Auth error detected, redirecting to login');
           navigate('/login');
           return;
         }
         
-        throw result.error;
+        throw error;
       }
       
-      console.log('Dashboard: Links fetched successfully', { count: result.data?.length });
-      setLinks(result.data || []);
-      setRetryCount(0); // Reset retry count on success
+      console.log('Dashboard: Links fetched successfully', { count: data?.length });
+      setLinks(data || []);
+      setHasError(false);
     } catch (error) {
       console.error('Dashboard: Error fetching links:', error);
+      setHasError(true);
+      setLinks([]);
       
-      // Handle different error types appropriately
       if (error instanceof Error) {
         if (error.message?.includes('invalid claim') || 
             error.message?.includes('bad_jwt') ||
             error.message?.includes('403')) {
-          console.log('Dashboard: Auth error in catch, redirecting to login');
           navigate('/login');
           return;
         }
         
-        if (error.message?.includes('timeout') || 
-            error.message?.includes('network')) {
-          toast.error('Network error. Please check your connection and try again.');
-        } else {
-          toast.error('Failed to fetch links. Please refresh or sign in again.');
-        }
+        toast.error('Failed to fetch links. Please try again.');
       }
-      
-      setHasError(true);
-      setLinks([]);
     } finally {
-      console.log('Dashboard: Setting isLoading to false');
       setIsLoading(false);
     }
-  };
+  }, [user, navigate, isLoading]);
 
-  const filterLinks = () => {
-    console.log('Dashboard: Filtering links', { 
-      totalLinks: links.length, 
-      searchTerm, 
-      filterActive 
-    });
-    
+  // Fetch links when user changes
+  useEffect(() => {
+    if (user && !loading) {
+      fetchLinks();
+    }
+  }, [user, loading, fetchLinks]);
+
+  // Filter links
+  useEffect(() => {
     let filtered = links;
 
     // Apply search filter
@@ -205,12 +112,8 @@ const Dashboard: React.FC = () => {
       });
     }
 
-    console.log('Dashboard: Filtered links result', { 
-      original: links.length, 
-      filtered: filtered.length 
-    });
     setFilteredLinks(filtered);
-  };
+  }, [links, searchTerm, filterActive]);
 
   const handleCopy = async (shortCode: string) => {
     const shortUrl = `${window.location.origin}/${shortCode}`;
@@ -224,21 +127,12 @@ const Dashboard: React.FC = () => {
 
   const handleDelete = async (linkId: string) => {
     try {
-      const result = await executeQuery(
-        async () => {
-          return await supabase
-            .from('links')
-            .delete()
-            .eq('id', linkId);
-        },
-        {
-          timeout: 8000,
-          maxRetries: 2,
-          retryDelay: 1000
-        }
-      );
+      const { error } = await supabase
+        .from('links')
+        .delete()
+        .eq('id', linkId);
 
-      if (result.error) throw result.error;
+      if (error) throw error;
       
       setLinks(links.filter(link => link.id !== linkId));
       toast.success('Link deleted successfully');
@@ -250,21 +144,12 @@ const Dashboard: React.FC = () => {
 
   const toggleActive = async (linkId: string, isActive: boolean) => {
     try {
-      const result = await executeQuery(
-        async () => {
-          return await supabase
-            .from('links')
-            .update({ is_active: !isActive })
-            .eq('id', linkId);
-        },
-        {
-          timeout: 8000,
-          maxRetries: 2,
-          retryDelay: 1000
-        }
-      );
+      const { error } = await supabase
+        .from('links')
+        .update({ is_active: !isActive })
+        .eq('id', linkId);
 
-      if (result.error) throw result.error;
+      if (error) throw error;
       
       setLinks(links.map(link => 
         link.id === linkId ? { ...link, is_active: !isActive } : link
@@ -276,30 +161,12 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleRefresh = async () => {
-    console.log('Dashboard: Manual refresh triggered');
-    setRetryCount(0);
+  const handleRefresh = () => {
     setHasError(false);
     fetchLinks();
   };
 
-  if (hasError) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-center">
-        <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
-        <div className="mb-4 text-slate-600 dark:text-slate-400">
-          Failed to load your links. {retryCount > 0 && `Retried ${retryCount} times.`}
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={handleRefresh}>Try Again</Button>
-          <Button onClick={() => window.location.reload()} variant="outline">Refresh Page</Button>
-          <Button onClick={() => navigate('/login')} variant="outline">Sign In Again</Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading || isLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -309,6 +176,21 @@ const Dashboard: React.FC = () => {
 
   if (!user) {
     return null;
+  }
+
+  if (hasError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen text-center">
+        <div className="text-2xl font-bold text-red-600 mb-4">Something went wrong</div>
+        <div className="mb-4 text-slate-600 dark:text-slate-400">
+          Failed to load your links. Please try again.
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={handleRefresh}>Try Again</Button>
+          <Button onClick={() => window.location.reload()} variant="outline">Refresh Page</Button>
+        </div>
+      </div>
+    );
   }
 
   const stats = {
@@ -441,7 +323,12 @@ const Dashboard: React.FC = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {filteredLinks.length === 0 ? (
+          {isLoading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-slate-600 dark:text-slate-400">Loading your links...</p>
+            </div>
+          ) : filteredLinks.length === 0 ? (
             <div className="text-center py-12">
               <Link2 className="h-12 w-12 text-slate-400 mx-auto mb-4" />
               <p className="text-slate-600 dark:text-slate-400 mb-4">
