@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Link2, BarChart3, QrCode, Copy, ExternalLink, Trash2, Plus, Search, Filter } from 'lucide-react';
@@ -28,15 +28,14 @@ const Dashboard: React.FC = () => {
   }, [user, loading, navigate]);
 
   // Fetch links function
-  const fetchLinks = useCallback(async () => {
+  const fetchLinks = async () => {
     if (!user || isLoading) return;
 
+    console.log('Dashboard: Starting to fetch links for user', user.id);
     setIsLoading(true);
     setHasError(false);
 
     try {
-      console.log('Dashboard: Fetching links for user', user.id);
-      
       const { data, error } = await supabase
         .from('links')
         .select('*')
@@ -45,48 +44,28 @@ const Dashboard: React.FC = () => {
 
       if (error) {
         console.error('Dashboard: Error fetching links', error);
-        
-        // Handle auth errors
-        if (error.message?.includes('invalid claim') || 
-            error.message?.includes('bad_jwt') ||
-            error.message?.includes('403')) {
-          console.log('Dashboard: Auth error detected, redirecting to login');
-          navigate('/login');
-          return;
-        }
-        
         throw error;
       }
       
-      console.log('Dashboard: Links fetched successfully', { count: data?.length });
+      console.log('Dashboard: Links fetched successfully', { count: data?.length || 0 });
       setLinks(data || []);
       setHasError(false);
     } catch (error) {
       console.error('Dashboard: Error fetching links:', error);
       setHasError(true);
       setLinks([]);
-      
-      if (error instanceof Error) {
-        if (error.message?.includes('invalid claim') || 
-            error.message?.includes('bad_jwt') ||
-            error.message?.includes('403')) {
-          navigate('/login');
-          return;
-        }
-        
-        toast.error('Failed to fetch links. Please try again.');
-      }
+      toast.error('Failed to fetch links. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [user, navigate, isLoading]);
+  };
 
-  // Fetch links when user changes
+  // Fetch links when user is available
   useEffect(() => {
     if (user && !loading) {
       fetchLinks();
     }
-  }, [user, loading, fetchLinks]);
+  }, [user, loading]);
 
   // Filter links
   useEffect(() => {
@@ -126,6 +105,8 @@ const Dashboard: React.FC = () => {
   };
 
   const handleDelete = async (linkId: string) => {
+    if (!confirm('Are you sure you want to delete this link?')) return;
+
     try {
       const { error } = await supabase
         .from('links')
@@ -161,11 +142,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleRefresh = () => {
-    setHasError(false);
-    fetchLinks();
-  };
-
+  // Show loading spinner while auth is loading
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -174,10 +151,12 @@ const Dashboard: React.FC = () => {
     );
   }
 
+  // Redirect if no user
   if (!user) {
     return null;
   }
 
+  // Show error state
   if (hasError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center">
@@ -186,7 +165,7 @@ const Dashboard: React.FC = () => {
           Failed to load your links. Please try again.
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleRefresh}>Try Again</Button>
+          <Button onClick={fetchLinks}>Try Again</Button>
           <Button onClick={() => window.location.reload()} variant="outline">Refresh Page</Button>
         </div>
       </div>
