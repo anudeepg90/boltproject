@@ -27,6 +27,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isTabActive, setIsTabActive] = useState(true);
 
   // Fetch user profile
   const fetchProfile = async (userId: string) => {
@@ -50,6 +51,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Initialize auth state
   useEffect(() => {
+    // Clear all stored auth data on app start
+    const clearStoredAuth = () => {
+      localStorage.removeItem('supabase.auth.token');
+      sessionStorage.clear();
+      // Clear all supabase related items
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('supabase') || key.includes('auth')) {
+          localStorage.removeItem(key);
+        }
+      });
+    };
+
+    clearStoredAuth();
+
     // Get initial session
     const getInitialSession = async () => {
       try {
@@ -84,6 +99,66 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => subscription.unsubscribe();
   }, []);
 
+  // Handle tab visibility and cleanup
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsTabActive(false);
+        // Tab is hidden/minimized - start cleanup timer
+        setTimeout(() => {
+          if (document.hidden) {
+            // If still hidden after 5 seconds, clear auth
+            handleSignOut();
+          }
+        }, 5000);
+      } else {
+        setIsTabActive(true);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      // Clear auth data when tab is closing
+      handleSignOut();
+    };
+
+    const handlePageHide = () => {
+      // Clear auth data when page is hidden (mobile background)
+      handleSignOut();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    try {
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      
+      // Clear all local storage
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Clear cookies
+      document.cookie.split(";").forEach(function(c) { 
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+      });
+      
+      // Reset state
+      setUser(null);
+      setProfile(null);
+    } catch (error) {
+      console.error('Error during sign out:', error);
+    }
+  };
+
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -117,12 +192,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (!error) {
-      setUser(null);
-      setProfile(null);
-    }
-    return { error };
+    await handleSignOut();
+    return { error: null };
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {

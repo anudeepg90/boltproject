@@ -12,9 +12,21 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Create Supabase client
 export const supabase = createClient<Database>(supabaseUrl || '', supabaseAnonKey || '', {
   auth: {
-    autoRefreshToken: true,
-    persistSession: true,
+    autoRefreshToken: false,
+    persistSession: false,
     detectSessionInUrl: true,
+    storage: {
+      getItem: (key: string) => {
+        // Don't persist auth tokens
+        return null;
+      },
+      setItem: (key: string, value: string) => {
+        // Don't store auth tokens
+      },
+      removeItem: (key: string) => {
+        // Nothing to remove
+      }
+    }
   },
 });
 
