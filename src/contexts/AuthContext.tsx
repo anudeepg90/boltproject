@@ -30,6 +30,83 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   console.log('AuthContext: Component rendered', { user: user?.id, loading, profile: profile?.username });
 
+  // Handle corrupted session state - defined early to avoid hoisting issues
+  const handleCorruptedSession = async () => {
+    try {
+      console.log('AuthContext: Handling corrupted session');
+      
+      // Clear all auth-related storage
+      localStorage.removeItem('supabase.auth.token');
+      sessionStorage.clear();
+      
+      // Sign out to clear server-side session
+      await supabase.auth.signOut();
+      
+      // Reset state
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+    } catch (error) {
+      console.error('AuthContext: Error handling corrupted session', error);
+      // Force reset state even if signOut fails
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+    }
+  };
+
+  // Fetch user profile - defined early to avoid hoisting issues
+  const fetchProfile = async (userId: string) => {
+    // Validate Supabase configuration
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    if (!url || !key || 
+        url === 'https://your-project.supabase.co' || 
+        key === 'your-anon-key' ||
+        url.includes('your-project') ||
+        key.includes('your-anon') ||
+        !key.startsWith('eyJ')) {
+      console.log('AuthContext: Skipping profile fetch - Supabase not configured');
+      return;
+    }
+    
+    try {
+      console.log('AuthContext: Fetching profile for user', userId);
+      
+      const result = await executeQuery(
+        async () => {
+          return await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+        },
+        {
+          timeout: 8000,
+          maxRetries: 1,
+          retryDelay: 1000
+        }
+      );
+
+      if (result.error) {
+        console.error('AuthContext: Error fetching profile', result.error);
+        // Only set profile to null if it's a real error, not a timeout
+        if (!result.error.message?.includes('timeout')) {
+          setProfile(null);
+        }
+        return;
+      }
+
+      const profileData = result.data as UserProfile | null;
+      console.log('AuthContext: Profile fetched successfully', { username: profileData?.username });
+      setProfile(profileData);
+    } catch (error) {
+      console.error('AuthContext: Exception fetching profile', error);
+      // Don't clear profile on network errors
+    }
+  };
+
   useEffect(() => {
     console.log('AuthContext: useEffect triggered');
     
@@ -170,31 +247,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Handle corrupted session state
-  const handleCorruptedSession = async () => {
-    try {
-      console.log('AuthContext: Handling corrupted session');
-      
-      // Clear all auth-related storage
-      localStorage.removeItem('supabase.auth.token');
-      sessionStorage.clear();
-      
-      // Sign out to clear server-side session
-      await supabase.auth.signOut();
-      
-      // Reset state
-      setUser(null);
-      setProfile(null);
-      setLoading(false);
-    } catch (error) {
-      console.error('AuthContext: Error handling corrupted session', error);
-      // Force reset state even if signOut fails
-      setUser(null);
-      setProfile(null);
-      setLoading(false);
-    }
-  };
-
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('AuthContext: Auth state change', { 
@@ -331,57 +383,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(sessionCheckInterval);
     };
-
-  const fetchProfile = async (userId: string) => {
-    // Validate Supabase configuration
-    const url = import.meta.env.VITE_SUPABASE_URL;
-    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
-    if (!url || !key || 
-        url === 'https://your-project.supabase.co' || 
-        key === 'your-anon-key' ||
-        url.includes('your-project') ||
-        key.includes('your-anon') ||
-        !key.startsWith('eyJ')) {
-      console.log('AuthContext: Skipping profile fetch - Supabase not configured');
-      return;
-    }
-    
-    try {
-      console.log('AuthContext: Fetching profile for user', userId);
-      
-      const result = await executeQuery(
-        async () => {
-          return await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-        },
-        {
-          timeout: 8000,
-          maxRetries: 1,
-          retryDelay: 1000
-        }
-      );
-
-      if (result.error) {
-        console.error('AuthContext: Error fetching profile', result.error);
-        // Only set profile to null if it's a real error, not a timeout
-        if (!result.error.message?.includes('timeout')) {
-          setProfile(null);
-        }
-        return;
-      }
-
-      const profileData = result.data as UserProfile | null;
-      console.log('AuthContext: Profile fetched successfully', { username: profileData?.username });
-      setProfile(profileData);
-    } catch (error) {
-      console.error('AuthContext: Exception fetching profile', error);
-      // Don't clear profile on network errors
-    }
-  };
 
   const signIn = async (email: string, password: string) => {
     const url = import.meta.env.VITE_SUPABASE_URL;
